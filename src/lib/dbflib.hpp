@@ -240,6 +240,10 @@ namespace dbflib {
                 throw std::runtime_error("trying to create a link after the end of a block");
             }
             
+            if (links.size() >= UINT16_MAX) {
+                throw std::runtime_error("too many links");
+            }
+
             links.emplace_back((uint32_t)(blockOrigin + origin), (uint32_t)(blockDestination + destination));
         }
 
@@ -268,7 +272,7 @@ namespace dbflib {
             *reinterpret_cast<uint64_t*>(header->magic) = DB_FILE_MAGIC;
             header->version = DB_FILE_CURR_VERSION;
             header->links_table_offset = (uint32_t)linksOffset;
-            header->links_count = (uint32_t)links.size();
+            header->links_count = (uint16_t)links.size();
             header->data_size = (uint32_t)dataSize;
             header->file_size = (uint32_t)data.size();
 
