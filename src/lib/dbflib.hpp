@@ -14,17 +14,23 @@ namespace dbflib {
     // minimum support version 
     constexpr uint8_t DB_FILE_MIN_VERSION = 0x10;
     // current version
-    constexpr uint8_t DB_FILE_CURR_VERSION = 0x10;
+    constexpr uint8_t DB_FILE_CURR_VERSION = 0x11;
 
     static_assert(DB_FILE_MIN_VERSION <= DB_FILE_CURR_VERSION && "Minimum version should be lower or equal to the current version");
 
     enum DB_FILE_VERSION_FEATURE : uint8_t {
         LINKING = 0x10,
+        FAST_LINKING = 0x11,
     };
 
     typedef uint32_t BlockId;
     typedef uint32_t BlockOffset;
     typedef uint32_t BlockSize;
+
+    struct DB_FILE_LINK {
+        uint32_t origin;
+        uint32_t destination;
+    };
 
     struct DB_FILE {
         uint8_t magic[sizeof(decltype(DB_FILE_MAGIC))]{};
@@ -35,15 +41,40 @@ namespace dbflib {
         uint32_t start_offset{};
         uint32_t data_size{};
         uint32_t file_size{};
+        uint32_t __pad{};
+        void* last_link{};
 
-        constexpr void* Start() {
-            return (void*)(magic + start_offset);
+        template<typename StartType = void>
+        constexpr StartType* Start() {
+            return reinterpret_cast<StartType*>(magic + start_offset);
         }
-    };
 
-    struct DB_FILE_LINK {
-        uint32_t origin;
-        uint32_t destination;
+        /*
+         * Link the file
+         * @param force force the linking
+         * @return if the file was linked
+         */
+        bool Link(bool force = false) {
+            if (!force && version >= DB_FILE_VERSION_FEATURE::FAST_LINKING) {
+                // store the last pointer to avoid linking the file more than once at the same location
+                if (last_link == (void*)this) {
+                    return false;
+                }
+                last_link = (void*)this;
+            }
+            if (version >= DB_FILE_VERSION_FEATURE::LINKING) {
+                DB_FILE_LINK* links = reinterpret_cast<DB_FILE_LINK*>(magic + links_table_offset);
+                for (size_t i = 0; i < links_count; i++) {
+                    DB_FILE_LINK& link = links[i];
+
+                    if (link.origin > file_size) throw std::runtime_error("invalid file: link after end file");
+                    if (link.destination > file_size) throw std::runtime_error("invalid file: link after end file");
+
+                    *reinterpret_cast<void**>(magic + link.origin) = magic + link.destination;
+                }
+            }
+            return true;
+        }
     };
 
     class DBFileBuilder {
@@ -230,17 +261,7 @@ namespace dbflib {
                 throw std::runtime_error("invalid file: start offset after file end");
             }
 
-            if (file->version >= DB_FILE_VERSION_FEATURE::LINKING) {
-                DB_FILE_LINK* links = reinterpret_cast<DB_FILE_LINK*>(file->magic + file->links_table_offset);
-                for (size_t i = 0; i < file->links_count; i++) {
-                    DB_FILE_LINK& link = links[i];
-
-                    if (link.origin > file->file_size) throw std::runtime_error("invalid file: link after end file");
-                    if (link.destination > file->file_size) throw std::runtime_error("invalid file: link after end file");
-
-                    *reinterpret_cast<void**>(file->magic + link.origin) = file->magic + link.destination;
-                }
-            }
+            file->Link();
         }
     public:
 

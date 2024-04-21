@@ -36,6 +36,8 @@ struct DB_FILE {
     uint32_t start_offset;
     uint32_t data_size;
     uint32_t file_size;
+    uint32_t __pad;
+    void* last_link;
 };
 ```
 
@@ -49,6 +51,7 @@ struct DB_FILE {
 | `start_offset`       | 0           | Offset of the start               |
 | `data_size`          | 0           | data section size                 |
 | `file_size`          | 0           | File size                         |
+| `last_link`          | 0           | Internal runtime object           |
 
 ### Links
 
@@ -94,6 +97,16 @@ MyType* data = (MyType*)reader.GetStart();
 ```
 
 The pointer requires is bound to the reader for file reading, otherwise it is bound to the buffer for buffer reading.
+
+If the might be moved, the method `Link` can be used on the file to link (if required) the file again.
+
+```cpp
+dbflib::DB_FILE* buffer;
+// ...
+
+buffer->Link();
+MyType* data = buffer->Start<MyType>();
+```
 
 ### Create file
 

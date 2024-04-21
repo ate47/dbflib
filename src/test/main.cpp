@@ -42,9 +42,8 @@ int main(int argc, char const *argv[]) {
     dbflib::DB_FILE* file = builder.Build();
 
 
-    auto Validate = [](dbflib::DBFileReader& reader, const char* type) {
-        TestLinkRoot* root = (TestLinkRoot*)reader.GetStart();
-
+    auto ValidateFile = [](dbflib::DB_FILE* file, const char* type) {
+        TestLinkRoot* root = file->Start<TestLinkRoot>();
         assert(root->valr == 65 && "Bad link root value");
         assert(root->link1->val1 == 42 && "Bad link 1 value");
         assert(root->link2->val2 == 85 && "Bad link 2 value");
@@ -53,13 +52,23 @@ int main(int argc, char const *argv[]) {
         std::cout << "ok for " << type << "\n";
     };
 
-    dbflib::DBFileReader reader{ file };
-    Validate(reader, "buffer");
-    
+    auto Validate = [&ValidateFile](dbflib::DBFileReader& reader, const char* type) {
+        ValidateFile(reader.GetFile(), type);
+    };
     std::filesystem::path tmp = "test.bin";
 
     builder.WriteToFile(tmp);
 
+    // test fastlink
+    assert(file->Link() && "the file wasn't linked!");
+    assert(!file->Link() && "the file was linked more than once!");
+    assert(!file->Link() && "the file was linked more than once!");
+    assert(!file->Link() && "the file was linked more than once!");
+    assert(file->Link(true) && "the file wasn't linked!");
+    ValidateFile(file, "link");
+
+    dbflib::DBFileReader reader{ file };
+    Validate(reader, "buffer");
 
     dbflib::DBFileReader readerFile{ tmp };
     Validate(readerFile, "file");
