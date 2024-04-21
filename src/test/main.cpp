@@ -3,7 +3,7 @@
 #include <assert.h>
 
 int main(int argc, char const *argv[]) {
-    dbflib::DBFileBuilder builder{};
+    dbflib::DBFileBuilder builder{ dbflib::DBFBO_ALIGN };
 
     struct TestLink3 {
         int val3;
@@ -60,6 +60,7 @@ int main(int argc, char const *argv[]) {
     builder.WriteToFile(tmp);
 
     // test fastlink
+    file->Validate();
     assert(file->Link() && "the file wasn't linked!");
     assert(!file->Link() && "the file was linked more than once!");
     assert(!file->Link() && "the file was linked more than once!");

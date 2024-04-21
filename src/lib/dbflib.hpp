@@ -23,6 +23,11 @@ namespace dbflib {
         FAST_LINKING = 0x11,
     };
 
+    enum DB_FILE_BUILDER_OPTIONS : uint8_t {
+        // 64 bits align all new blocks
+        DBFBO_ALIGN = 1,
+    };
+
     typedef uint32_t BlockId;
     typedef uint32_t BlockOffset;
     typedef uint32_t BlockSize;
@@ -47,6 +52,32 @@ namespace dbflib {
         template<typename StartType = void>
         constexpr StartType* Start() {
             return reinterpret_cast<StartType*>(magic + start_offset);
+        }
+
+        /*
+         * Validate the file
+         * @param len file size, 0 for unknown
+         */
+        void Validate(size_t len = 0) const {
+            if (len && len < offsetof(DB_FILE, file_size) + sizeof(sizeof(file_size))) {
+                throw std::runtime_error("invalid file: file too small");
+            }
+
+            if (*reinterpret_cast<decltype(DB_FILE_MAGIC)*>(magic) != DB_FILE_MAGIC) {
+                throw std::runtime_error("invalid file: bad magic");
+            }
+
+            if (version < DB_FILE_MIN_VERSION) {
+                throw std::runtime_error("invalid file: version too low");
+            }
+
+            if (len && file_size > len) {
+                throw std::runtime_error("invalid file: read file too small");
+            }
+
+            if (start_offset > file_size) {
+                throw std::runtime_error("invalid file: start offset after file end");
+            }
         }
 
         /*
@@ -79,6 +110,7 @@ namespace dbflib {
 
     class DBFileBuilder {
         bool linked{};
+        uint8_t flags{};
         std::vector<uint8_t> data{};
         std::unordered_map<BlockId, BlockSize> blocks{};
         std::vector<DB_FILE_LINK> links{};
@@ -96,9 +128,24 @@ namespace dbflib {
             linked = false;
         }
     public:
-        DBFileBuilder() {
+        /*
+         * @param flags builder options, described in DB_FILE_BUILDER_OPTIONS
+         */
+        DBFileBuilder(uint8_t flags = 0) : flags(flags) {
             data.resize(sizeof(DBFileBuilder));
             Header()->start_offset = (uint32_t)data.size();
+        }
+
+        DBFileBuilder(DBFileBuilder& o) = delete;
+        DBFileBuilder(DBFileBuilder&& o) = delete;
+
+        /*
+         * Align the buffer.
+         * @param AlignType align type
+         */
+        template<typename AlignType = uint64_t>
+        void AlignBlock() {
+            data.resize((data.size() + sizeof(AlignType) - 1) & ~(sizeof(AlignType) - 1));
         }
 
         /*
@@ -109,6 +156,11 @@ namespace dbflib {
          */
         BlockId CreateBlock(void* buffer, size_t len) {
             AssertNotLinked();
+
+            if (flags & DB_FILE_BUILDER_OPTIONS::DBFBO_ALIGN) {
+                AlignBlock();
+            }
+
             size_t id = data.size();
             if (len) {
                 if (id + len > INT32_MAX) {
@@ -129,6 +181,11 @@ namespace dbflib {
         template<typename BlockType = void>
         std::pair<BlockId, BlockType*> CreateBlock(const size_t len = sizeof(BlockType)) {
             AssertNotLinked();
+
+            if (flags & DB_FILE_BUILDER_OPTIONS::DBFBO_ALIGN) {
+                AlignBlock();
+            }
+
             size_t id = data.size();
             if (len) {
                 if (id + len > INT32_MAX) {
@@ -241,26 +298,7 @@ namespace dbflib {
         DB_FILE* file;
 
         void ValidateAndLink(size_t len = 0) {
-            if (len && len < offsetof(DB_FILE, file_size) + sizeof(sizeof(file->file_size))) {
-                throw std::runtime_error("invalid file: file too small");
-            }
-
-            if (*reinterpret_cast<decltype(DB_FILE_MAGIC)*>(file->magic) != DB_FILE_MAGIC) {
-                throw std::runtime_error("invalid file: bad magic");
-            }
-
-            if (file->version < DB_FILE_MIN_VERSION) {
-                throw std::runtime_error("invalid file: version too low");
-            }
-
-            if (len && file->file_size > len) {
-                throw std::runtime_error("invalid file: read file too small");
-            }
-
-            if (file->start_offset > file->file_size) {
-                throw std::runtime_error("invalid file: start offset after file end");
-            }
-
+            file->Validate(len);
             file->Link();
         }
     public:
@@ -298,6 +336,9 @@ namespace dbflib {
             ValidateAndLink(length);
         }
 
+        DBFileReader(DBFileBuilder& o) = delete;
+        DBFileReader(DBFileBuilder&& o) = delete;
+
         /*
          * Get file data
          */
@@ -307,9 +348,11 @@ namespace dbflib {
 
         /*
          * Get start data
+         * @param StartType return type
          */
-        constexpr void* GetStart() {
-            return file->magic + file->start_offset;
+        template<typename StartType = void>
+        constexpr StartType* GetStart() {
+            return reinterpret_cast<StartType*>(file->magic + file->start_offset);
         }
     };
 }
